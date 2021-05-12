@@ -21,8 +21,8 @@ library(leaps)
 library(MASS)
 library(class)
 library(e1071)
+library(corrplot)
 prostate_cancer <- read.csv("~/Box Sync/DDuckett/Data_Analysis/Prostate_Cancer.csv", row.names=1)
-
 ```
 
 ## EDA
@@ -32,6 +32,9 @@ summary(prostate_cancer)
 
 nas <- sapply(prostate_cancer, function(x) sum(is.na(x)))
 nas
+
+correlation <- cor(prostate_cancer[,2:ncol(prostate_cancer)], method = "pearson")
+corrplot(correlation, method = "color")
 
 # Pivot Dataframe
 prostate_cancer_pivot = pivot_longer(prostate_cancer,!diagnosis_result, names_to = "Predictor", values_to = "Value")
