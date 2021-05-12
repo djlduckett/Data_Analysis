@@ -17,6 +17,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(ggplot2)
 library(tidyr)
+library(leaps)
+library(MASS)
+library(class)
+library(e1071)
 prostate_cancer <- read.csv("~/Box Sync/DDuckett/Data_Analysis/Prostate_Cancer.csv", row.names=1)
 
 ```
@@ -25,6 +29,9 @@ prostate_cancer <- read.csv("~/Box Sync/DDuckett/Data_Analysis/Prostate_Cancer.c
 
 ```{r}
 summary(prostate_cancer)
+
+nas <- sapply(prostate_cancer, function(x) sum(is.na(x)))
+nas
 
 # Pivot Dataframe
 prostate_cancer_pivot = pivot_longer(prostate_cancer,!diagnosis_result, names_to = "Predictor", values_to = "Value")
@@ -49,16 +56,30 @@ ggplot(prostate_cancer_pivot, aes(x=diagnosis_result,y=Value)) +
 ## Split dataset
 
 ```{r}
+# scale data for analyses that require it
+prostate_cancer_scaled <- cbind(prostate_cancer$diagnosis_result, as.data.frame(scale(prostate_cancer[2:ncol(prostate_cancer)])))
+colnames(prostate_cancer_scaled)[1] <- colnames(prostate_cancer)
+
+# split non-scaled data
 train_index <- sample(seq(1, nrow(prostate_cancer)), size = ceiling(0.7 * nrow(prostate_cancer)), replace = FALSE)
 test_index <- seq(1, nrow(prostate_cancer))[-train_index]
 train_set <- prostate_cancer[train_index,] 
 test_set <- prostate_cancer[test_index,]
+
+# split scaled data
+train_set_scaled <- prostate_cancer_scaled[train_index,] 
+test_set_scaled <- prostate_cancer_scaled[test_index,]
 ```
 
 
 ## Logistic Regression
-
+# No significant predictors from regression; regsubsets shows most important predictors are texture, compactness, fractal_dimension; test error = 0.2
 ```{r}
+# Regsubsets
+important_vars <- regsubsets(diagnosis_result ~ ., data = prostate_cancer, nvmax = ncol(prostate_cancer)-1)
+plot(important_vars, scale = "Cp")
+
+# Logistic Regression
 logistic1 <- glm(diagnosis_result ~ ., family = binomial, data = train_set)
 summary(logistic1)
 #plot(diagnosis_result ~., data = train_set)
@@ -74,5 +95,146 @@ log_test_prob <- predict(logistic1, newdata = test_set, type = "response")
 log_pred_test <- ifelse(log_test_prob > 0.5, "M", "B")
 log_test_error <- mean(log_pred_test != test_set$diagnosis_result)
 log_test_error
+```
+
+## KNN
+# Best k = 12; test error = 0.17
+```{r}
+kmax <- 20 
+knn_train_error <- rep(0, kmax) 
+knn_test_error <- rep(0, kmax) 
+
+# loop through k values to find k value with minimum test error
+for (i in 1:kmax){ 
+  knn_pred_tr <- knn(train_set_scaled[,2:ncol(train_set_scaled)], train_set_scaled[,2:ncol(train_set_scaled)], train_set_scaled$diagnosis_result, k=i)
+  knn_train_error[i] <- mean(knn_pred_tr != train_set_scaled$diagnosis_result) 
+  
+  knn_pred_test <- knn(train_set_scaled[,2:ncol(train_set_scaled)], test_set_scaled[,2:ncol(test_set_scaled)], train_set_scaled$diagnosis_result, k=i)
+  knn_test_error[i] <- mean(knn_pred_test != test_set_scaled$diagnosis_result) 
+}
+
+# plot training and testing error rates for each value of k
+plot(1:kmax, knn_test_error, ylim = c(0, 0.4), pch=20, xlab = "Number of neighbors", ylab = "Error rate")
+points(1:kmax, knn_train_error, pch=20, col=2)
+legend(15, 0.05, c("test error", "training error"), col=1:2, pch=20)
+
+# get optimal values
+min(knn_test_error) 
+which(knn_test_error == min(knn_test_error)) 
+```
+
+## LDA and QDA
+# LDA test error = 0.17; QDA test error = 0.2
+```{r}
+# LDA
+lda1 <- lda(diagnosis_result ~ ., data = train_set)
+lda1
+plot(lda1)
+
+lda_pred_train <- predict(lda1) # predict classifications for training data
+lda_train_error <- mean(lda_pred_train$class != train_set$diagnosis_result) # calculate training error rate
+lda_train_error
+
+lda_pred_test <- predict(lda1, test_set) # predict classifications for test data
+lda_test_error <- mean(lda_pred_test$class != test_set$diagnosis_result) # calculate test error rate
+lda_test_error
+
+# QDA
+qda1 <- qda(diagnosis_result ~ ., data = train_set)
+qda1
+
+qda_pred_train <- predict(qda1) # predict classifications for training data
+qda_train_error <- mean(qda_pred_train$class != train_set$diagnosis_result) # calculate training error rate
+qda_train_error
+
+qda_pred_test <- predict(qda1, test_set) # predict classifications for test data
+qda_test_error <- mean(qda_pred_test$class != test_set$diagnosis_result) # calculate test error rate
+qda_test_error
+```
+
+##SVM
+# linear SVM error rate = 0.2
+# degree 3 polynomial SVM error rate = 0.17
+# degree 4 polynomial SVM error rate = 0.17
+# degree 5 polynomial SVM error rate = 0.17
+# radial SVM error rate = 0.17
+```{r}
+# ##Linear kernel
+# Tune cost parameter
+tune1 <- tune(svm, diagnosis_result ~ ., kernel = "linear", ranges = list(cost = c(0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)), data = train_set_scaled, scale = FALSE)
+summary(tune1)
+
+# Perform SVM analysis
+svm_linear1 <- svm(diagnosis_result ~ ., data = train_set_scaled, kernel = "linear", cost = 0.1, scale = FALSE)
+svm_linear_pred_train <- predict(svm_linear1, newdata = train_set_scaled[,2:ncol(train_set_scaled)])
+svm_linear_train_error <- 1 - sum(train_set_scaled$diagnosis_result == svm_linear_pred_train) / nrow(train_set_scaled)
+svm_linear_train_error
+
+svm_linear_pred_test <- predict(svm_linear1, newdata = test_set_scaled[,2:ncol(test_set_scaled)])
+svm_linear_test_error <- 1 - sum(test_set_scaled$diagnosis_result == svm_linear_pred_test) / nrow(test_set_scaled)
+svm_linear_test_error
+
+### Polynomial kernel
+## Degree 3
+# Tune cost parameter
+tune2 <- tune(svm, diagnosis_result ~ ., kernel = "polynomial", degree = 3, ranges = list(coef0 = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), cost = c(0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)), data = train_set_scaled, scale = FALSE)
+summary(tune2)
+
+svm_poly3 <- svm(diagnosis_result ~ ., data = train_set_scaled, kernel = "polynomial", degree = 3, coef0 = 4, cost = 0.01, scale = FALSE)
+svm_poly3_pred_train <- predict(svm_poly3, newdata = train_set_scaled[,2:ncol(train_set_scaled)])
+svm_poly3_train_error <- 1 - sum(train_set_scaled$diagnosis_result == svm_poly3_pred_train) / nrow(train_set_scaled)
+svm_poly3_train_error
+
+svm_poly3_pred_test <- predict(svm_poly3, newdata = test_set_scaled[,2:ncol(test_set_scaled)])
+svm_poly3_test_error <- 1 - sum(test_set_scaled$diagnosis_result == svm_poly3_pred_test) / nrow(test_set_scaled)
+svm_poly3_test_error
+
+## Degree 4
+# Tune cost parameter
+tune3 <- tune(svm, diagnosis_result ~ ., kernel = "polynomial", degree = 4, ranges = list(coef0 = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), cost = c(0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)), data = train_set_scaled, scale = FALSE)
+summary(tune3)
+
+svm_poly4 <- svm(diagnosis_result ~ ., data = train_set_scaled, kernel = "polynomial", degree = 4, coef0 = 1, cost = 0.2, scale = FALSE)
+svm_poly4_pred_train <- predict(svm_poly4, newdata = train_set_scaled[,2:ncol(train_set_scaled)])
+svm_poly4_train_error <- 1 - sum(train_set_scaled$diagnosis_result == svm_poly4_pred_train) / nrow(train_set_scaled)
+svm_poly4_train_error
+
+svm_poly4_pred_test <- predict(svm_poly4, newdata = test_set_scaled[,2:ncol(test_set_scaled)])
+svm_poly4_test_error <- 1 - sum(test_set_scaled$diagnosis_result == svm_poly4_pred_test) / nrow(test_set_scaled)
+svm_poly4_test_error
+
+## Degree 5
+# Tune cost parameter
+tune4 <- tune(svm, diagnosis_result ~ ., kernel = "polynomial", degree = 5, ranges = list(coef0 = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10), cost = c(0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)), data = train_set_scaled, scale = FALSE)
+summary(tune4)
+
+svm_poly5 <- svm(diagnosis_result ~ ., data = train_set_scaled, kernel = "polynomial", degree = 5, coef0 = 1, cost = 0.2, scale = FALSE)
+svm_poly5_pred_train <- predict(svm_poly5, newdata = train_set_scaled[,2:ncol(train_set_scaled)])
+svm_poly5_train_error <- 1 - sum(train_set_scaled$diagnosis_result == svm_poly5_pred_train) / nrow(train_set_scaled)
+svm_poly5_train_error
+
+svm_poly5_pred_test <- predict(svm_poly5, newdata = test_set_scaled[,2:ncol(test_set_scaled)])
+svm_poly5_test_error <- 1 - sum(test_set_scaled$diagnosis_result == svm_poly5_pred_test) / nrow(test_set_scaled)
+svm_poly5_test_error
+
+### Radial kernel
+# Tune cost parameter
+tune5 <- tune(svm, diagnosis_result ~ ., kernel = "radial", ranges = list(gamma = c(0.001, 0.01, 0.1, 1, 5, 10), cost = c(0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)), data = train_set_scaled, scale = FALSE)
+summary(tune5)
+
+svm_radial1 <- svm(diagnosis_result ~ ., data = train_set_scaled, kernel = "radial", gamma = 0.01, cost = 2, scale = FALSE)
+svm_radial_pred_train <- predict(svm_radial1, newdata = train_set_scaled[,2:ncol(train_set_scaled)])
+svm_radial_train_error <- 1 - sum(train_set_scaled$diagnosis_result == svm_radial_pred_train) / nrow(train_set_scaled)
+svm_radial_train_error
+
+svm_radial_pred_test <- predict(svm_radial1, newdata = test_set_scaled[,2:ncol(test_set_scaled)])
+svm_radial_test_error <- 1 - sum(test_set_scaled$diagnosis_result == svm_radial_pred_test) / nrow(test_set_scaled)
+svm_radial_test_error
+```
+
+### Random Forest
+
+```{r}
+
 ```
 
