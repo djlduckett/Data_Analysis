@@ -1,0 +1,78 @@
+---
+title: "Prostate Cancer Analysis"
+author: "Drew Duckett"
+date: "5/6/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### These analyses use the Prostate Cancer dataset from kaggle, submitted by Sajid Saifi (https://www.kaggle.com/sajidsaifi/prostate-cancer)
+
+# EDA
+
+## Load data and libraries
+```{r}
+library(ggplot2)
+library(tidyr)
+prostate_cancer <- read.csv("~/Box Sync/DDuckett/Data_Analysis/Prostate_Cancer.csv", row.names=1)
+
+```
+
+## EDA
+
+```{r}
+summary(prostate_cancer)
+
+# Pivot Dataframe
+prostate_cancer_pivot = pivot_longer(prostate_cancer,!diagnosis_result, names_to = "Predictor", values_to = "Value")
+
+# Boxplots
+ggplot(prostate_cancer_pivot, aes(x=diagnosis_result,y=Value)) +
+  geom_boxplot() +
+  facet_wrap(~ Predictor, ncol = 4, scales = "free") +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(size=10)) +
+  labs(x="Diagnosis")
+
+# Violin Plots
+ggplot(prostate_cancer_pivot, aes(x=diagnosis_result,y=Value)) +
+  geom_violin() +
+  facet_wrap(~ Predictor, ncol = 4, scales = "free") +
+  theme(plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(size=10)) +
+  labs(x="Diagnosis")
+```
+
+## Split dataset
+
+```{r}
+train_index <- sample(seq(1, nrow(prostate_cancer)), size = ceiling(0.7 * nrow(prostate_cancer)), replace = FALSE)
+test_index <- seq(1, nrow(prostate_cancer))[-train_index]
+train_set <- prostate_cancer[train_index,] 
+test_set <- prostate_cancer[test_index,]
+```
+
+
+## Logistic Regression
+
+```{r}
+logistic1 <- glm(diagnosis_result ~ ., family = binomial, data = train_set)
+summary(logistic1)
+#plot(diagnosis_result ~., data = train_set)
+
+# Train Error
+log_train_prob <- predict(logistic1, type = "response")
+log_pred_train <- ifelse(log_train_prob > 0.5, "M", "B")
+log_train_error <- mean(log_pred_train != train_set$diagnosis_result)
+log_train_error
+
+# Test Error
+log_test_prob <- predict(logistic1, newdata = test_set, type = "response")
+log_pred_test <- ifelse(log_test_prob > 0.5, "M", "B")
+log_test_error <- mean(log_pred_test != test_set$diagnosis_result)
+log_test_error
+```
+
