@@ -22,6 +22,9 @@ library(MASS)
 library(class)
 library(e1071)
 library(corrplot)
+library(tree)
+library(randomForest)
+library(gbm)
 prostate_cancer <- read.csv("~/Box Sync/DDuckett/Data_Analysis/Prostate_Cancer.csv", row.names=1)
 ```
 
@@ -236,8 +239,37 @@ svm_radial_test_error
 ```
 
 ### Random Forest
+# Test error = 0.2
+# Important variables = compactness, perimeter, area
+```{r}
+rf1 <- randomForest(diagnosis_result ~ ., data = train_set, mtry = 3, importance = TRUE)
+rf1_pred_train <- predict(rf1, newdata = train_set[,2:ncol(train_set)])
+rf1_train_error = 1 - sum(train_set$diagnosis_result == rf1_pred_train) / nrow(train_set)
+rf1_train_error
+
+rf1_pred_test <- predict(rf1, newdata = test_set[,2:ncol(test_set)])
+rf1_test_error = 1 - sum(test_set$diagnosis_result == rf1_pred_test) / nrow(test_set)
+rf1_test_error
+
+varImpPlot(rf1)
+```
+
+### Boosting
 
 ```{r}
+# Convert response to 0,1
+train_set_01 <- cbind(ifelse(train_set$diagnosis_result == "B", 0, 1), train_set[2:ncol(train_set)])
+colnames(train_set_01)[1] <- colnames(train_set)[1]
+
+test_set_01 <- cbind(ifelse(test_set$diagnosis_result == "B", 0, 1), test_set[2:ncol(test_set)])
+colnames(test_set_01)[1] <- colnames(test_set)[1]
+
+# Interaction depth = 2
+boost2 = gbm(diagnosis_result ~ ., data = train_set_01, distribution = "adaboost", interaction.depth = 2)
+boost2_pred_train <- predict(boost2, newdata = train_set_01[,2:ncol(train_set_01)])
+boost2_train_error = 1 - sum(train_set_01$diagnosis_result == boost2_pred_train) / nrow(train_set_01)
+boost2_train_error
+
 
 ```
 
