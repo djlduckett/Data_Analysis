@@ -25,6 +25,7 @@ library(corrplot)
 library(tree)
 library(randomForest)
 library(gbm)
+library(JOUSBoost)
 prostate_cancer <- read.csv("~/Box Sync/DDuckett/Data_Analysis/Prostate_Cancer.csv", row.names=1)
 ```
 
@@ -255,21 +256,23 @@ varImpPlot(rf1)
 ```
 
 ### Boosting
-
+# Test error = 0.23
 ```{r}
 # Convert response to 0,1
-train_set_01 <- cbind(ifelse(train_set$diagnosis_result == "B", 0, 1), train_set[2:ncol(train_set)])
+train_set_01 <- cbind(ifelse(train_set$diagnosis_result == "B", -1, 1), train_set[2:ncol(train_set)])
 colnames(train_set_01)[1] <- colnames(train_set)[1]
 
-test_set_01 <- cbind(ifelse(test_set$diagnosis_result == "B", 0, 1), test_set[2:ncol(test_set)])
+test_set_01 <- cbind(ifelse(test_set$diagnosis_result == "B", -1, 1), test_set[2:ncol(test_set)])
 colnames(test_set_01)[1] <- colnames(test_set)[1]
 
-# Interaction depth = 2
-boost2 = gbm(diagnosis_result ~ ., data = train_set_01, distribution = "adaboost", interaction.depth = 2)
-boost2_pred_train <- predict(boost2, newdata = train_set_01[,2:ncol(train_set_01)])
-boost2_train_error = 1 - sum(train_set_01$diagnosis_result == boost2_pred_train) / nrow(train_set_01)
-boost2_train_error
+# Adaboost
+boost1 <- adaboost(as.matrix(train_set_01[,2:ncol(test_set_01)]), as.vector(train_set_01$diagnosis_result))
+boost1_pred_train <- predict.adaboost(boost1, X = as.matrix(train_set_01[,2:ncol(train_set_01)]), type = "response")
+boost1_train_error = 1 - sum(train_set_01$diagnosis_result == boost1_pred_train) / nrow(train_set_01)
+boost1_train_error
 
-
+boost1_pred_test <- predict.adaboost(boost1, X = as.matrix(test_set_01[,2:ncol(test_set_01)]), type = "response")
+boost1_test_error = 1 - sum(test_set_01$diagnosis_result == boost1_pred_test) / nrow(test_set_01)
+boost1_test_error
 ```
 
